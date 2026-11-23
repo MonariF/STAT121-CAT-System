@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root{--navy:#12345a;--blue:#1769aa;--bg:#f2f5f9;--ink:#1f2937;--muted:#64748b;--red:#b42318}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);font-family:Arial,Helvetica,sans-serif;color:var(--ink)}
+    header{background:var(--navy);color:#fff;text-align:center;padding:24px 14px}
+    header h1{font-size:clamp(24px,4vw,34px);margin:0 0 8px;letter-spacing:.5px}
+    header .lecturer{font-weight:bold;margin:4px 0 14px}
+    header h2{margin:0;font-size:22px}
+    header p{margin:8px 0 0}
+    .exam-dates{margin-top:12px;padding-bottom:8px;text-align:center;color:#fff;font-size:15px;line-height:1.5}
+    .exam-dates p{margin:4px 0}
+    main{max-width:850px;margin:24px auto;padding:0 14px 30px}
+    .card{background:#fff;border-radius:14px;padding:24px;box-shadow:0 4px 18px #0f172a12;margin-bottom:16px}
+    label.field{display:block;font-weight:700;margin:14px 0 6px}
+    input[type=text],input[type=tel]{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:8px;font-size:16px}
+    button{border:0;border-radius:8px;padding:12px 18px;background:var(--blue);color:#fff;font-size:16px;font-weight:700;cursor:pointer}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .muted{color:var(--muted);font-size:14px;line-height:1.5}
+    .summary{background:#eaf2fb;padding:14px;border-radius:8px;line-height:1.6}
+    .error{color:var(--red);white-space:pre-wrap;margin-top:12px}
+    .row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .timer{font-size:24px;font-weight:800;color:var(--red);font-variant-numeric:tabular-nums}
+    .progress{height:8px;background:#e2e8f0;border-radius:99px;overflow:hidden;margin:16px 0}
+    .bar{height:100%;background:#16803c;width:0;transition:width .2s}
+    .option{display:flex;align-items:flex-start;gap:10px;padding:13px;border:1px solid #dbe2ea;border-radius:9px;margin:9px 0;cursor:pointer;line-height:1.45}
+    .option:has(input:checked){border-color:var(--blue);background:#eff6ff}
+    .option input{margin-top:3px;flex:0 0 auto}
+    .status{font-weight:700;color:var(--muted)}
+    .hidden{display:none!important}
+    .success{font-size:18px;line-height:1.7}
+    @media(max-width:600px){.card{padding:17px}button{width:100%}.timer{font-size:21px}}
+  </style>
+</head>
+<body>
+<header>
+  <h1>KISII UNIVERSITY</h1>
+  <div class="lecturer">LECTURER: DR. FRED MONARI</div>
+  <h2>STAT 121 CAT</h2>
+  <p>60 randomly selected questions · 1 mark per question · Total: 60 marks.</p>
+  <div class="exam-dates">
+    <p><strong>CAT OPENS:</strong> 31 October 2026, 12:00 AM (EAT)</p>
+    <p><strong>CAT CLOSES:</strong> 4 November 2026, 11:59 PM (EAT)</p>
+  </div>
+</header>
+<main>
+  <section id="intro" class="card">
+    <h2>Student information</h2>
+    <div class="summary">
+      Each question has its own timer of 10–60 seconds. When time expires, an unanswered question receives zero and the next question appears automatically. <strong>You cannot return to a previous question.</strong>
+    </div>
+    <label class="field" for="fullName">Full name</label><input id="fullName" type="text" autocomplete="name">
+    <label class="field" for="regNo">Registration number</label><input id="regNo" type="text">
+    <label class="field" for="phone">Phone number</label><input id="phone" type="tel" autocomplete="tel">
+    <label class="field" for="courseCode">Course code</label><input id="courseCode" type="text" value="STAT 121">
+    <p id="availability" class="muted">Checking CAT availability…</p>
+    <button id="startBtn" onclick="startCAT()">Start CAT</button>
+    <p id="startError" class="error"></p>
+  </section>
+
+  <section id="exam" class="card hidden">
+    <div class="row">
+      <div><div id="qCount" class="status">Question 1 of 60</div><div class="muted">Choose one answer.</div></div>
+      <div id="timer" class="timer">00:30</div>
+    </div>
+    <div class="progress"><div id="bar" class="bar"></div></div>
+    <h3 id="questionText"></h3>
+    <div id="options"></div>
+    <div class="row" style="margin-top:18px">
+      <span id="saveStatus" class="muted">Your answer is recorded when you click Next.</span>
+      <button id="nextBtn" onclick="submitCurrentAnswer()">Next question</button>
+    </div>
+    <p class="muted">Once you move forward or time expires, this question is locked and cannot be revisited.</p>
+    <p id="examError" class="error"></p>
+  </section>
+
+  <section id="result" class="card hidden">
+    <h2>CAT submitted</h2>
+    <p id="resultText" class="success"></p>
+    <p class="muted">Your score has been recorded in the CAT results spreadsheet.</p>
+  </section>
+</main>
+<script>
+let appConfig=null, attempt=null, currentIndex=0, chosenOption="", timerHandle=null;
+let remaining=0, locked=false, finishing=false, submittedIds=new Set();
+
+google.script.run.withSuccessHandler(c=>{
+  appConfig=c;
+  const now=Date.now();
+  let message="CAT is available.";
+  if(c.openAt && now<Date.parse(c.openAt)) message="CAT opens on "+new Date(c.openAt).toLocaleString()+".";
+  if(c.closeAt && now>Date.parse(c.closeAt)) message="The CAT deadline has passed.";
+  document.getElementById("availability").textContent=message;
+  document.getElementById("startBtn").disabled=message!=="CAT is available.";
+}).withFailureHandler(e=>{
+  document.getElementById("availability").textContent="Could not load CAT settings. Refresh this page or contact the lecturer.";
+}).getAppConfig();
+
+function startCAT(){
+  const student={
+    fullName:document.getElementById("fullName").value.trim(),
+    regNo:document.getElementById("regNo").value.trim(),
+    phone:document.getElementById("phone").value.trim(),
+    courseCode:document.getElementById("courseCode").value.trim()||"STAT 121"
+  };
+  document.getElementById("startBtn").disabled=true;
+  google.script.run.withSuccessHandler(data=>{
+    attempt=data;currentIndex=0;document.getElementById("intro").classList.add("hidden");
+    document.getElementById("exam").classList.remove("hidden");showQuestion();
+  }).withFailureHandler(e=>{
+    document.getElementById("startError").textContent=e.message||String(e);
+    document.getElementById("startBtn").disabled=false;
+  }).startCAT(student);
+}
+
+function showQuestion(){
+  if(finishing||!attempt)return;
+  clearInterval(timerHandle);locked=false;chosenOption="";
+  const q=attempt.questions[currentIndex];
+  document.getElementById("qCount").textContent="Question "+(currentIndex+1)+" of "+attempt.questions.length+" · 1 mark";
+  document.getElementById("questionText").textContent=q.question;
+  document.getElementById("bar").style.width=((currentIndex+1)/attempt.questions.length*100)+"%";
+  const container=document.getElementById("options");container.innerHTML="";
+  q.options.forEach((option,i)=>{
+    const label=document.createElement("label");label.className="option";
+    const radio=document.createElement("input");radio.type="radio";radio.name="choice";radio.value=option;
+    radio.addEventListener("change",()=>{if(!locked)chosenOption=option;});
+    const span=document.createElement("span");span.textContent=String.fromCharCode(65+i)+". "+option;
+    label.appendChild(radio);label.appendChild(span);container.appendChild(label);
+  });
+  document.getElementById("nextBtn").textContent=currentIndex===attempt.questions.length-1?"Finish CAT":"Next question";
+  document.getElementById("saveStatus").textContent="Select one answer before time runs out.";
+  remaining=q.seconds;renderTimer();
+  timerHandle=setInterval(()=>{
+    remaining--;renderTimer();
+    if(remaining<=0){clearInterval(timerHandle);lockAndAdvance(true);}
+  },1000);
+}
+function renderTimer(){
+  const sec=Math.max(0,remaining);
+  document.getElementById("timer").textContent=String(Math.floor(sec/60)).padStart(2,"0")+":"+String(sec%60).padStart(2,"0");
+}
+function submitCurrentAnswer(){lockAndAdvance(false);}
+
+function lockAndAdvance(timedOut){
+  if(locked||finishing)return;
+  locked=true;clearInterval(timerHandle);
+  const q=attempt.questions[currentIndex];
+  const selected=timedOut?"":chosenOption;
+  // Disable all controls immediately; never permit a second response to the same question.
+  document.querySelectorAll('input[name="choice"]').forEach(el=>el.disabled=true);
+  document.getElementById("nextBtn").disabled=true;
+  document.getElementById("saveStatus").textContent=timedOut&&!selected?"Time expired — zero marks. Moving on…":"Saving answer…";
+  google.script.run.withSuccessHandler(()=>{
+    submittedIds.add(q.id);
+    if(currentIndex===attempt.questions.length-1){finishCAT(false);return;}
+    currentIndex++;
+    document.getElementById("nextBtn").disabled=false;
+    showQuestion();
+  }).withFailureHandler(e=>{
+    // Fail closed: do not allow a student to revisit/change this question if the network fails.
+    document.getElementById("examError").textContent="Could not record this response. Please keep this page open and contact the lecturer: "+(e.message||String(e));
+    document.getElementById("saveStatus").textContent="Response recording failed.";
+    // Retry the same locked response once through the same server endpoint.
+    google.script.run.withSuccessHandler(()=>{
+      submittedIds.add(q.id);
+      if(currentIndex===attempt.questions.length-1){finishCAT(false);return;}
+      currentIndex++;document.getElementById("nextBtn").disabled=false;showQuestion();
+    }).withFailureHandler(()=>{}).recordAnswer(attempt.attemptId,q.id,selected,timedOut);
+  }).recordAnswer(attempt.attemptId,q.id,selected,timedOut);
+}
+function finishCAT(timedOut){
+  if(finishing)return;finishing=true;clearInterval(timerHandle);
+  document.getElementById("nextBtn").disabled=true;
+  google.script.run.withSuccessHandler(r=>{
+    document.getElementById("exam").classList.add("hidden");document.getElementById("result").classList.remove("hidden");
+    document.getElementById("resultText").textContent=r.message+" Your score is "+r.score+" / "+r.total+" ("+r.percentage+"%). Timed-out or unanswered questions: "+r.timedOutCount+".";
+  }).withFailureHandler(e=>{
+    finishing=false;document.getElementById("examError").textContent="Submission could not be finalized. Keep this page open and contact the lecturer: "+(e.message||String(e));
+  }).finishCAT(attempt.attemptId,timedOut);
+}
+</script>
+</body>
+</html>
